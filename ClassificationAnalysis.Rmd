@@ -1,0 +1,119 @@
+---
+title: "Classfication Analysis"
+author: "Mohammed Ali"
+date: "January 24, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table) #reading table
+library(dplyr)
+library(class)
+```
+
+# k-Nearest Neighbors (kNN)
+
+## Recognizing a road sign with kNN
+After several trips with a human behind the wheel, it is time for the self-driving car to attempt the test course alone.
+
+```{r load_data}
+signs <- fread("data/knn_traffic_signs.csv", stringsAsFactors = FALSE,
+               showProgress = FALSE)
+train_signs <- signs[sample == "train"]
+test_signs <- signs[sample == "test"]
+glimpse(signs)
+```
+
+Create a vector of sign labels to use with kNN by extracting the column 
+```{r sign_types}
+# Create a vector of labels
+sign_types <- train_signs$sign_type
+```
+
+Identify the next_sign using the `knn()` function:
+
+* Set the `train` argument equal to the `signs` data frame without the first column.
+* Set the `test` argument equal to the data frame `next_sign`.
+* Use the vector of labels `cl` argument.
+
+```{r first_knn_classifier}
+# Classify the next sign observed
+knn(train = train_signs[, -c("sign_type", "id", "sample")], test = test_signs[1:1, -c("sign_type", "id", "sample")], cl = sign_types)
+```
+
+
+## Exploring the traffic sign dataset
+To better understand how the `knn()` function was able to classify the stop sign, it may help to examine the training dataset it used.
+
+Each previously observed street sign was divided into a 4x4 grid, and the red, green, and blue level for each of the 16 center.
+
+```{r count_sign_types}
+# Count the number of signs of each type
+table(train_signs$sign_type)
+```
+
+Run the provided `aggregate()` command to see whether the average red level might vary by sign type.
+```{r aggregate}
+# Check r10's average red level by sign type
+aggregate(r10 ~ sign_type, data = train_signs, mean)
+```
+
+
+## Classifying a collection of road signs
+Now that the autonomous vehicle has successfully stopped on its own, your team feels confident allowing the car to continue the test course.
+
+```{r predict_all}
+# Use kNN to identify the test road signs
+signs_pred <- knn(train = train_signs[, -c("sign_type", "id", "sample")], test = test_signs[, -c("sign_type", "id", "sample")], cl = sign_types)
+
+
+# Create a confusion matrix of the actual versus predicted values
+signs_actual <- test_signs$sign_type
+table(signs_pred, signs_actual)
+
+# Compute the accuracy
+mean(signs_pred == signs_actual)
+```
+
+## Testing other 'k' values
+
+By default, the `knn()` function in the class package uses only the single nearest neighbor.
+
+Setting a `k` parameter allows the algorithm to consider additional nearby neighbors. This enlarges the collection of neighbors which will vote on the predicted class.
+
+Compare `k` values of _1_, _7_, and _15_ to examine the impact on traffic sign classification accuracy.
+
+```{r different_ks}
+# Compute the accuracy of the baseline model (default k = 1)
+k_1 <- knn(train = train_signs[, -c("sign_type", "id", "sample")], test = test_signs[, -c("sign_type", "id", "sample")], cl = sign_types)
+mean(signs_actual == k_1)
+
+# Modify the above to set k = 7
+k_7 <- knn(train = train_signs[, -c("sign_type", "id", "sample")], test = test_signs[, -c("sign_type", "id", "sample")], cl = sign_types, k = 7)
+mean(signs_actual == k_7)
+
+# Set k = 15 and compare to the above
+k_15 <- knn(train = train_signs[, -c("sign_type", "id", "sample")], test = test_signs[, -c("sign_type", "id", "sample")], cl = sign_types, k = 15)
+mean(signs_actual == k_15)
+```
+
+## Seeing how the neighbors voted
+When multiple nearest neighbors hold a vote, it can sometimes be useful to examine whether the voters were unanimous or widely separated.
+
+For example, knowing more about the voters' confidence in the classification could allow an autonomous vehicle to use caution in the case there is any chance at all that a stop sign is ahead.
+
+Build a kNN model with the `prob = TRUE` parameter to compute the vote proportions. Set `k = 7`.
+```{r prob}
+# Use the prob parameter to get the proportion of votes for the winning class
+sign_pred <- knn(train = train_signs[, -c("sign_type", "id", "sample")], test = test_signs[, -c("sign_type", "id", "sample")], cl = sign_types, k = 7, prob = TRUE)
+
+# Get the "prob" attribute from the predicted classes
+sign_prob <- attr(sign_pred, "prob")
+
+# Examine the first several predictions
+head(sign_pred)
+
+# Examine the proportion of votes for the winning class
+head(sign_prob)
+```
