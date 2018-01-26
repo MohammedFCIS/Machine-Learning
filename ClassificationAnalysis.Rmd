@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(data.table) #reading table
 library(dplyr)
 library(class)
+library(naivebayes)
 ```
 
 # k-Nearest Neighbors (kNN)
@@ -117,3 +118,98 @@ head(sign_pred)
 # Examine the proportion of votes for the winning class
 head(sign_prob)
 ```
+
+#  Naive Bayes
+
+The `where9am` data frame contains 91 days (thirteen weeks) worth of data in which Brett recorded his `location` at 9am each day as well as whether the `daytype` was a weekend or weekday.
+
+Using the conditional probability formula below, you can compute the probability that Brett is working in the office, given that it is a weekday.
+
+$P(A|B)=P(A and B)/P(B)$
+
+Calculations like these are the basis of the Naive Bayes destination prediction model you'll develop in later exercises.
+
+Loading data
+
+```{r load_data}
+where9am <- fread("data/locations.csv", stringsAsFactors = FALSE,
+               showProgress = FALSE)
+glimpse(where9am)
+```
+
+
+## Computing probabilities
+
+Find P(office) using `nrow()` and `subset()` to count rows in the dataset and save the result as `p_A`.
+
+```{r p_A}
+p_A <- nrow(subset(where9am, location == "office")) / nrow (where9am)
+```
+
+Find P(weekday), using `nrow()` and `subset()` again, and save the result as `p_B`.
+
+```{r p_B}
+p_B <- nrow(subset(where9am, daytype == "weekday")) / nrow (where9am)
+```
+
+Use `nrow()` and `subset()` a final time to find P(office and weekday). Save the result as `p_AB`.
+
+```{r p_AB}
+p_AB <- nrow(subset(where9am, location == "office" & daytype == "weekday")) / nrow (where9am)
+```
+
+Compute P(office | weekday) and save the result as `p_A_given_B`.
+
+```{r p_A_given_B}
+p_A_given_B <- p_AB / p_B
+```
+
+Print the value of p_A_given_B
+
+
+```{r}
+p_A_given_B
+```
+
+## A simple Naive Bayes location model
+
+Use `naive_bayes()` with a formula like `y ~ x` to build a model of `location` as a function of `daytype`.
+
+```{r model_1}
+# Build the location prediction model
+locmodel <- naive_bayes(location ~ daytype, data = where9am)
+```
+
+Forecast the Thursday 9am location using`predict()` with the `thursday9am `object as the `newdata` argument.
+
+```{r thursday9am}
+# Predict Thursday's 9am location
+predict(locmodel, newdata = "weekday")
+```
+
+Do the same for predicting the `saturday9am` location.
+```{r weekend}
+predict(locmodel, newdata = "weekend")
+```
+
+## A more sophisticated location model
+Use the R formula interface to build a model where location depends on both `daytype` and `hourtype`
+```{r model_2}
+# Build the location prediction model
+locmodel <- naive_bayes(location ~ daytype + hourtype, data = where9am)
+```
+
+Forecast the Thursday 9am location using`predict()` with the `thursday9am `object as the `newdata` argument.
+
+```{r weekday_afternoon}
+# Predict Thursday's 9am location
+predict(locmodel, newdata = c("weekday", "afternoon"))
+```
+
+Do the same for predicting the `saturday9am` location.
+```{r weekday_evening}
+predict(locmodel, newdata = c("weekday", "evening"))
+```
+
+
+## Preparing for unforeseen circumstances
