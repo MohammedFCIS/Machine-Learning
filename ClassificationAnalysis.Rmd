@@ -11,14 +11,17 @@ library(data.table) #reading table
 library(dplyr)
 library(class)
 library(naivebayes)
+library(pROC)
 ```
 
 # k-Nearest Neighbors (kNN)
 
+As the kNN algorithm literally "learns by example" it is a case in point for starting to understand supervised machine learning. This chapter will introduce classification while working through the application of kNN to self-driving vehicle road sign recognition.
+
 ## Recognizing a road sign with kNN
 After several trips with a human behind the wheel, it is time for the self-driving car to attempt the test course alone.
 
-```{r load_data}
+```{r load_data_2}
 signs <- fread("data/knn_traffic_signs.csv", stringsAsFactors = FALSE,
                showProgress = FALSE)
 train_signs <- signs[sample == "train"]
@@ -119,9 +122,13 @@ head(sign_pred)
 head(sign_prob)
 ```
 
-#  Naive Bayes
+
+
+# Naive Bayes
+Naive Bayes uses principles from the field of statistics to make predictions. This chapter will introduce the basics of Bayesian methods while exploring how to apply these techniques to iPhone-like destination suggestions.
 
 The `where9am` data frame contains 91 days (thirteen weeks) worth of data in which Brett recorded his `location` at 9am each day as well as whether the `daytype` was a weekend or weekday.
+
 
 Using the conditional probability formula below, you can compute the probability that Brett is working in the office, given that it is a weekday.
 
@@ -213,3 +220,180 @@ predict(locmodel, newdata = c("weekday", "evening"))
 
 
 ## Preparing for unforeseen circumstances
+``` {r}
+predict(locmodel, newdata = c("weekend", "afternoon"), type = "prob")
+```
+
+```{r model_2}
+# Build the location prediction model
+locmodel <- naive_bayes(location ~ daytype + hourtype, data = where9am, laplace = 1)
+```
+
+
+``` {r}
+predict(locmodel, newdata = c("weekend", "afternoon"), type = "prob")
+```
+
+
+# Logistic Regression
+
+Logistic regression involves fitting a curve to numeric data to make predictions about binary events. Arguably one of the most widely used machine learning methods, this chapter will provide an overview of the technique while illustrating how to apply it to fundraising data.
+
+```{r load_data_3}
+donors <- fread("data/donors.csv", stringsAsFactors = TRUE,
+               showProgress = FALSE)
+glimpse(donors)
+```
+
+## Building simple logistic regression models
+The `donors` dataset contains 93,462 examples of people mailed in a fundraising solicitation for paralyzed military veterans. The `donated` column is `1` if the person made a donation in response to the mailing and `0` otherwise. This binary outcome will be the dependent variable for the logistic regression model.
+
+The remaining columns are features of the prospective donors that may influence their donation behavior. These are the model's independent variables.
+
+When building a regression model, it it often helpful to form a hypothesis about which independent variables will be predictive of the dependent variable. The `bad_address` column, which is set to `1` for an invalid mailing address and `0` otherwise, seems like it might reduce the chances of a donation. Similarly, one might suspect that religious interest (`interest_religion`) and interest in veterans affairs (`interest_veterans`) would be associated with greater charitable giving.
+
+In this exercise, you will use these three factors to create a simple model of donation behavior.
+
+Count the number of occurrences of each level of the `donated` variable
+```{r donated}
+table(donors$donated)
+
+# Build the donation model
+donation_model <- glm(donated ~ bad_address + interest_religion + interest_veterans, 
+                      data = donors, family = "binomial")
+
+# Summarize the model results
+summary(donation_model)
+```
+
+
+## Making a binary prediction
+
+```{r b_model}
+
+# Estimate the donation probability
+donors$donation_prob <- predict(donation_model, type = "response")
+
+# Find the donation probability of the average prospect
+mean(donors$donated)
+
+# Predict a donation if probability of donation is greater than average (0.0504)
+donors$donation_pred <- ifelse(donors$donation_prob > 0.0504, 1, 0)
+
+# Calculate the model's accuracy
+mean(donors$donated == donors$donation_pred)
+```
+
+## Calculating ROC Curves and AUC
+
+```{r auc_roc}
+# Create a ROC curve
+ROC <- roc(donors$donated, donors$donation_prob)
+
+# Plot the ROC curve
+plot(ROC, col = "blue")
+
+# Calculate the area under the curve (AUC)
+auc(ROC)
+```
+
+## Coding categorical features
+Sometimes a dataset contains numeric values that represent a categorical feature.
+
+In the `donors` dataset, `wealth_rating` uses numbers to indicate the donor's wealth level:
+
+* 0 = Unknown
+* 1 = Low
+* 2 = Medium
+* 3 = High
+
+This exercise illustrates how to prepare this type of categorical feature and the examines its impact on a logistic regression model.
+
+```{r fact_model}
+# Convert the wealth rating to a factor
+donors$wealth_rating <- factor(donors$wealth_rating,
+levels = c(0, 1, 2, 3),
+labels = c("Unknown", "Low", "Medium", "High"))
+
+# Use relevel() to change reference category
+donors$wealth_rating <- relevel(donors$wealth_rating, ref = "Medium")
+
+# Build the donation model
+donation_model <- glm(donated ~ wealth_rating, 
+                      data = donors, family = "binomial")
+
+# Summarize the model results
+summary(donation_model)
+
+# See how our factor coding impacts the model
+summary(donation_model)
+```
+
+## Handling missing data
+Some of the prospective donors have missing age data. Unfortunately, R will exclude any cases with NA values when building a regression model.
+
+One workaround is to replace, or impute, the missing values with an estimated value. After doing so, you may also create a missing data indicator to model the possibility that cases with missing data are different in some way from those without.
+
+```{r missing}
+# Find the average age among non-missing values
+summary(donors$age)
+
+# Impute missing age values with mean(age)
+donors$imputed_age <- ifelse(is.na(donors$age),
+round(mean(donors$age, na.rm = TRUE), 2), donors$age)
+
+# Create missing value indicator for age
+donors$missing_age <- ifelse(is.na(donors$age),
+1, 0)
+```
+
+## Building a more sophisticated model
+One of the best predictors of future giving is a history of recent, frequent, and large gifts. In marketing terms, this is known as R/F/M:
+
+Recency
+Frequency
+Money
+Donors that haven given both recently and frequently may be especially likely to give again; in other words, the combined impact of recency and frequency may be greater than the sum of the separate effects.
+
+Because these predictors together have a greater impact on the dependent variable, their joint effect must be modeled as an interaction.
+
+```{r complex}
+# Build a recency, frequency, and money (RFM) model
+rfm_model <- glm(donated ~ money + recency * frequency, 
+                      data = donors, family = "binomial")
+
+# Summarize the RFM model to see how the parameters were coded
+summary(rfm_model)
+
+# Compute predicted probabilities for the RFM model
+rfm_prob <- predict(rfm_model, type = "response")
+
+# Plot the ROC curve and find AUC for the new model
+ROC <- roc(donors$donated, rfm_prob)
+plot(ROC, col = "red")
+auc(ROC)
+```
+
+## Building a stepwise regression model
+In the absence of subject-matter expertise, stepwise regression can assist with the search for the most important predictors of the outcome of interest.
+
+In this exercise, you will use a forward stepwise approach to add predictors to the model one-by-one until no additional benefit is seen.
+
+```{r step_wise}
+# Specify a null model with no predictors
+null_model <- glm(donated ~ 1, data = donors, family = "binomial")
+
+# Specify the full model using all of the potential predictors
+full_model <- glm(donated ~ ., data = donors, family = "binomial")
+
+# Use a forward stepwise algorithm to build a parsimonious model
+step_model <- step(null_model, scope = list(lower = null_model, upper = full_model), direction = "forward")
+
+# Estimate the stepwise donation probability
+step_prob <- predict(step_model, type = "response")
+
+# Plot the ROC of the stepwise model
+ROC <- roc(donors$donated, step_prob)
+plot(ROC, col = "red")
+auc(ROC)
+```
