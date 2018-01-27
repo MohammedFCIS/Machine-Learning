@@ -12,6 +12,9 @@ library(dplyr)
 library(class)
 library(naivebayes)
 library(pROC)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
 ```
 
 # k-Nearest Neighbors (kNN)
@@ -121,6 +124,7 @@ head(sign_pred)
 # Examine the proportion of votes for the winning class
 head(sign_prob)
 ```
+
 
 
 
@@ -396,4 +400,153 @@ step_prob <- predict(step_model, type = "response")
 ROC <- roc(donors$donated, step_prob)
 plot(ROC, col = "red")
 auc(ROC)
+
+```
+
+
+
+# Classification Trees
+Classification trees use flowchart-like structures to make decisions. Because humans can readily understand these tree structures, classification trees are useful when transparency is needed, such as in loan approval. We'll use the Lending Club dataset to simulate this scenario.
+
+
+```{r load_data_4}
+loans <- fread("data/loans.csv", stringsAsFactors = TRUE,
+               showProgress = FALSE)
+glimpse(loans)
+```
+
+## Building a simple decision tree
+The loans dataset contains 11,312 randomly-selected people who were applied for and later received loans from Lending Club, a US-based peer-to-peer lending company.
+
+You will use a decision tree to try to learn patterns in the outcome of these loans (either repaid or default) based on the requested loan amount and credit score at the time of application.
+
+Then, see how the tree's predictions differ for an applicant with good credit versus one with bad credit.
+
+```{r first_tree}
+# Build a lending model predicting loan outcome versus loan amount and credit score
+loan_model <- rpart(outcome ~ loan_amount + credit_score, data = loans, method = "class", control = rpart.control(cp = 0))
+
+# Make a prediction for someone with good credit
+predict(loan_model, good_credit, type = "class")
+
+# Make a prediction for someone with bad credit
+predict(loan_model, bad_credit, type = "class")
+```
+
+## Visualizing classification trees
+Due to government rules to prevent illegal discrimination, lenders are required to explain why a loan application was rejected.
+
+The structure of classification trees can be depicted visually, which helps to understand how the tree makes its decisions.
+
+```{r visu}
+# Plot the loan_model with default settings
+rpart.plot(loan_model)
+
+# Plot the loan_model with customized settings
+rpart.plot(loan_model, type = 3, box.palette = c("red", "green"), fallen.leaves = TRUE)
+```
+
+## Creating random test datasets
+Before building a more sophisticated lending model, it is important to hold out a portion of the loan data to simulate how well it will predict the outcomes of future loan applicants.
+
+As depicted in the following image, you can use 75% of the observations for training and 25% for testing the model.
+
+The sample() function can be used to generate a random sample of rows to include in the training set. Simply supply it the total number of observations and the number needed for training.
+
+Use the resulting vector of row IDs to subset the loans into training and testing datasets.
+
+```{r split data}
+# Determine the number of rows for training
+nrow(loans) * 0.75
+
+# Create a random sample of row IDs
+sample_rows <- sample(11312, 8484)
+
+# Create the training dataset
+loans_train <- loans[sample_rows, ]
+
+# Create the test dataset
+loans_test <- loans[-sample_rows, ]
+```
+
+## Building and evaluating a larger tree
+Previously, you created a simple decision tree that used the applicant's credit score and requested loan amount to predict the loan outcome.
+
+Lending Club has additional information about the applicants, such as home ownership status, length of employment, loan purpose, and past bankruptcies, that may be useful for making more accurate predictions.
+
+Using all of the available applicant data, build a more sophisticated lending model using the random training dataset created previously. Then, use this model to make predictions on the testing dataset to estimate the performance of the model on future loan applications.
+
+```{r large_tree}
+# Grow a tree using all of the available applicant data
+loan_model <- rpart(outcome ~ ., data = loans_train, method = "class", control = rpart.control(cp = 0))
+
+# Make predictions on the test dataset
+loans_test$pred <- predict(loan_model, loans_test, type = "class")
+
+# Examine the confusion matrix
+table(loans_test$pred, loans_test$outcome)
+
+# Compute the accuracy on the test dataset
+mean(loans_test$pred == loans_test$outcome)
+```
+
+## Preventing overgrown trees
+The tree grown on the full set of applicant data grew to be extremely large and extremely complex, with hundreds of splits and leaf nodes containing only a handful of applicants. This tree would be almost impossible for a loan officer to interpret.
+
+Using the pre-pruning methods for early stopping, you can prevent a tree from growing too large and complex. See how the rpart control options for maximum tree depth and minimum split count impact the resulting tree.
+
+```{r overfrow}
+# Grow a tree with maxdepth of 6
+loan_model <- rpart(outcome ~ ., data = loans_train, method = "class", control = rpart.control(cp = 0, maxdepth = 6))
+
+# Compute the accuracy of the simpler tree
+loans_test$pred <- predict(loan_model, loans_test, type = "class")
+mean(loans_test$pred == loans_test$outcome)
+
+# Grow a tree with minsplit of 500
+loan_model2 <- rpart(outcome ~ ., data = loans_train, method = "class", control = rpart.control(cp = 0, minsplit = 500))
+
+# Compute the accuracy of the simpler tree
+loans_test$pred2 <- predict(loan_model2, loans_test, type = "class")
+mean(loans_test$pred2 == loans_test$outcome)
+```
+
+## Creating a nicely pruned tree
+Stopping a tree from growing all the way can lead it to ignore some aspects of the data or miss important trends it may have discovered later.
+
+By using post-pruning, you can intentionally grow a large and complex then prune it to be smaller and more efficient later on.
+
+In this exercise, you will have the opportunity to construct a visualization of the tree's performance versus complexity, and use this information to prune the tree to an appropriate level.
+
+```{r prune}
+# The 'rpart' package is loaded into the workspace
+
+# Grow an overly complex tree
+loan_model <- rpart(outcome ~ ., data = loans_train, method = "class", control = rpart.control(cp = 0))
+
+# Examine the complexity plot
+plotcp(loan_model)
+
+# Prune the tree
+loan_model_pruned <- prune(loan_model, cp = 0.0014)
+
+# Compute the accuracy of the pruned tree
+loans_test$pred <- predict(loan_model_pruned, loans_test, type = "class")
+mean(loans_test$pred == loans_test$outcome)
+```
+
+## Building a random forest model
+In spite of the fact that a forest can contain hundreds of trees, growing a decision tree forest is perhaps even easier than creating a single highly-tuned tree.
+
+Using the randomForest package, build a random forest and see how it compares to the single trees you built previously.
+
+Keep in mind that due to the random nature of the forest, the results may vary slightly each time you create the forest.
+
+```{r random_forest}
+# Build a random forest model
+loan_model <- randomForest(outcome ~ ., data = loans_train)
+
+# Compute the accuracy of the random forest
+loans_test$pred <- predict(loan_model, loans_test, type = "class")
+mean(loans_test$pred == loans_test$outcome)
 ```
